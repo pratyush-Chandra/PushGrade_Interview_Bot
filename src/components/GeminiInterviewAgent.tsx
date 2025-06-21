@@ -35,15 +35,12 @@ declare global {
   }
 }
 
-const INITIAL_PROMPT = `You are a senior software engineer conducting a technical interview. Ask the candidate one question at a time. Wait for their answer before asking the next. Be professional, encouraging, and adapt your questions based on their previous answers. Start with: 'Welcome! Let's begin your interview. First question: ...'`;
-
 export default function GeminiInterviewAgent() {
   const [step, setStep] = useState<"setup" | "interview" | "feedback">("setup");
   const [role, setRole] = useState("");
   const [experience, setExperience] = useState("");
   const [technologies, setTechnologies] = useState<string[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<string>("");
-  const [answers, setAnswers] = useState<string[]>([]);
   const [transcript, setTranscript] = useState<string>("");
   const [feedback, setFeedback] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -63,7 +60,6 @@ export default function GeminiInterviewAgent() {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voiceNavCommand, setVoiceNavCommand] = useState<string | null>(null);
-  const [manualMode, setManualMode] = useState(false);
 
   // Stepper labels
   const steps = [
@@ -150,7 +146,6 @@ export default function GeminiInterviewAgent() {
     setStep("interview");
     setLoading(false);
     setQuestionCount(1);
-    setAnswers([]);
     setTranscript("");
     setFeedback("");
     setTimeout(() => {}, 500); // Placeholder for TTS
@@ -235,12 +230,10 @@ export default function GeminiInterviewAgent() {
   const handleSubmitAnswer = useCallback(
     async (answer: string, forceFinish = false) => {
       stopListening();
-      setManualMode(false);
       setTranscriptValue("");
       setInterimTranscript("");
       setError(null);
-      setAnswers(prev => [...prev, answer]);
-      setTranscript(prev => prev + `Q: ${currentQuestion}\nA: ${answer}\n`);
+      setTranscript((prev) => prev + `Q: ${currentQuestion}\nA: ${answer}\n`);
       if (questionCount >= maxQuestions || forceFinish) {
         setStep("feedback");
         setLoading(true);
@@ -267,7 +260,6 @@ export default function GeminiInterviewAgent() {
       setLoading(false);
       setTimeout(() => speak(questions[0], () => startListening()), 500);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       currentQuestion,
       experience,
@@ -301,7 +293,6 @@ export default function GeminiInterviewAgent() {
     if (step === "interview" && currentQuestion) {
       speak(currentQuestion, () => startListening());
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, currentQuestion]);
 
   useEffect(() => {
@@ -322,7 +313,6 @@ export default function GeminiInterviewAgent() {
     setExperience("");
     setTechnologies([]);
     setCurrentQuestion("");
-    setAnswers([]);
     setTranscript("");
     setFeedback("");
     setQuestionCount(0);
