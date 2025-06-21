@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import pdfParse from "pdf-parse";
+
+// Using eval('require') to bypass Next.js build-time static analysis
+// This is a workaround for a stubborn build error with this library.
+const pdfParse = eval('require')('pdf-parse');
 
 export async function POST(req: NextRequest) {
   try {
