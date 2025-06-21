@@ -25,8 +25,12 @@ export default function AuthForm() {
       } else {
         await createUserWithEmailAndPassword(auth, email, password);
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("An unknown error occurred.");
+      }
     } finally {
       setLoading(false);
     }
@@ -38,8 +42,12 @@ export default function AuthForm() {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("An unknown error occurred.");
+      }
     } finally {
       setLoading(false);
     }
@@ -76,7 +84,7 @@ export default function AuthForm() {
       <div className="mt-4 text-center">
         {isLogin ? (
           <>
-            Don't have an account?{" "}
+            Don&apos;t have an account?{" "}
             <button className="text-blue-600 underline" onClick={() => setIsLogin(false)}>
               Sign Up
             </button>

@@ -18,6 +18,7 @@ export async function generateInterviewQuestions({ role, experience, technologie
   if (projects.length > 0) {
     extra += `\nThe candidate has worked on these projects: ${projects.join(", ")}. Please include at least 2 questions specifically about their projects.`;
   }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const prompt = `Generate ${count} realistic mock interview questions for a ${role} with ${experience} experience. Focus on these technologies: ${technologies.join(", ")}.${extra}\nFormat as a numbered list.`;
   // Replace with actual Gemini API call
   return [
@@ -30,6 +31,7 @@ export async function generateInterviewQuestions({ role, experience, technologie
 }
 
 // Analyze interview transcript for feedback
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function analyzeInterviewFeedback({ transcript }: { transcript: string }) {
   // Simulate Gemini feedback
   return `Technical Knowledge: 8/10\nCommunication: 7/10\nConfidence: 8/10\nProblem Solving: 9/10\n\nGreat job! You demonstrated strong technical skills and clear communication. Keep practicing for even more confidence!`;

@@ -1,6 +1,39 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { generateInterviewQuestions, analyzeInterviewFeedback } from "@/lib/gemini";
+
+// SpeechRecognition types for browsers that support it
+interface SpeechRecognition extends EventTarget {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: (event: SpeechRecognitionEvent) => void;
+  onerror: (event: SpeechRecognitionErrorEvent) => void;
+  onend: () => void;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+}
+
+// Extend the Window interface
+declare global {
+  interface Window {
+    SpeechRecognition: {
+      new (): SpeechRecognition;
+    };
+    webkitSpeechRecognition: {
+      new (): SpeechRecognition;
+    };
+  }
+}
 
 const INITIAL_PROMPT = `You are a senior software engineer conducting a technical interview. Ask the candidate one question at a time. Wait for their answer before asking the next. Be professional, encouraging, and adapt your questions based on their previous answers. Start with: 'Welcome! Let's begin your interview. First question: ...'`;
 
@@ -27,7 +60,7 @@ export default function GeminiInterviewAgent() {
   const [isListening, setIsListening] = useState(false);
   const [transcriptValue, setTranscriptValue] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voiceNavCommand, setVoiceNavCommand] = useState<string | null>(null);
   const [manualMode, setManualMode] = useState(false);
@@ -70,11 +103,15 @@ export default function GeminiInterviewAgent() {
         const data = await res.json();
         setResumeText(data.text);
         extractResumeInfo(data.text);
-      } catch (err) {
+      } catch (err: unknown) {
         setResumeText("");
         setRoles([]);
         setProjects([]);
-        setUploadError("Failed to parse PDF. Please try a different file or use a .txt resume.");
+        setUploadError(
+          err instanceof Error
+            ? err.message
+            : "Failed to parse PDF. Please try a different file or use a .txt resume."
+        );
       } finally {
         setUploading(false);
       }
@@ -137,7 +174,8 @@ export default function GeminiInterviewAgent() {
 
   // Helper: Start listening for answer (STT)
   function startListening() {
-    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
       setError("Speech recognition not supported in this browser.");
       return;
     }
@@ -146,13 +184,12 @@ export default function GeminiInterviewAgent() {
     setTranscriptValue("");
     setError(null);
     setVoiceNavCommand(null);
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = 'en-US';
     recognition.interimResults = true;
     recognition.continuous = false;
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = "";
       let final = "";
       for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -176,7 +213,7 @@ export default function GeminiInterviewAgent() {
         }
       }
     };
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       setError("Speech recognition error: " + event.error);
       setIsListening(false);
     };
@@ -194,6 +231,56 @@ export default function GeminiInterviewAgent() {
     }
   }
 
+  // Handle answer submission (manual or via voice command)
+  const handleSubmitAnswer = useCallback(
+    async (answer: string, forceFinish = false) => {
+      stopListening();
+      setManualMode(false);
+      setTranscriptValue("");
+      setInterimTranscript("");
+      setError(null);
+      setAnswers(prev => [...prev, answer]);
+      setTranscript(prev => prev + `Q: ${currentQuestion}\nA: ${answer}\n`);
+      if (questionCount >= maxQuestions || forceFinish) {
+        setStep("feedback");
+        setLoading(true);
+        speak("Thank you. Generating your feedback now.");
+        const fb = await analyzeInterviewFeedback({
+          transcript: transcript + `Q: ${currentQuestion}\nA: ${answer}\n`,
+        });
+        setFeedback(fb);
+        setLoading(false);
+        speak(fb);
+        return;
+      }
+      setLoading(true);
+      const questions = await generateInterviewQuestions({
+        role,
+        experience,
+        technologies,
+        count: 1,
+        roles,
+        projects,
+      });
+      setCurrentQuestion(questions[0]);
+      setQuestionCount((qc) => qc + 1);
+      setLoading(false);
+      setTimeout(() => speak(questions[0], () => startListening()), 500);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      currentQuestion,
+      experience,
+      maxQuestions,
+      projects,
+      questionCount,
+      role,
+      roles,
+      technologies,
+      transcript,
+    ]
+  );
+
   // Handle voice navigation commands
   useEffect(() => {
     if (!voiceNavCommand) return;
@@ -207,43 +294,19 @@ export default function GeminiInterviewAgent() {
       setVoiceNavCommand(null);
       handleSubmitAnswer(transcriptValue, true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceNavCommand]);
-
-  // Handle answer submission (manual or via voice command)
-  async function handleSubmitAnswer(answer: string, forceFinish = false) {
-    stopListening();
-    setManualMode(false);
-    setTranscriptValue("");
-    setInterimTranscript("");
-    setError(null);
-    setAnswers(prev => [...prev, answer]);
-    setTranscript(prev => prev + `Q: ${currentQuestion}\nA: ${answer}\n`);
-    if (questionCount >= maxQuestions || forceFinish) {
-      setStep("feedback");
-      setLoading(true);
-      speak("Thank you. Generating your feedback now.");
-      const fb = await analyzeInterviewFeedback({ transcript: transcript + `Q: ${currentQuestion}\nA: ${answer}\n` });
-      setFeedback(fb);
-      setLoading(false);
-      speak(fb);
-      return;
-    }
-    setLoading(true);
-    const questions = await generateInterviewQuestions({ role, experience, technologies, count: 1, roles, projects });
-    setCurrentQuestion(questions[0]);
-    setQuestionCount(qc => qc + 1);
-    setLoading(false);
-    setTimeout(() => speak(questions[0], () => startListening()), 500);
-  }
+  }, [voiceNavCommand, currentQuestion, handleSubmitAnswer, transcriptValue]);
 
   // On interview start, speak the first question and start listening
-  useEffect(() => {
+  const startInterviewFlow = useCallback(() => {
     if (step === "interview" && currentQuestion) {
       speak(currentQuestion, () => startListening());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, currentQuestion]);
+
+  useEffect(() => {
+    startInterviewFlow();
+  }, [startInterviewFlow]);
 
   // Clean up recognition on unmount
   useEffect(() => {
@@ -393,7 +456,7 @@ export default function GeminiInterviewAgent() {
               </div>
               <div className="mb-2">
                 {isSpeaking && <div className="text-blue-600 font-semibold mb-2">Speaking...</div>}
-                {isListening && <div className="text-green-600 font-semibold mb-2">Listening... (Say your answer or say 'repeat', 'next', or 'finish')</div>}
+                {isListening && <div className="text-green-600 font-semibold mb-2">Listening... (Say your answer or say &apos;repeat&apos;, &apos;next&apos;, or &apos;finish&apos;)</div>}
                 {interimTranscript && <div className="bg-gray-100 p-2 rounded mb-2 text-sm">Transcribing: {interimTranscript}</div>}
                 {error && <div className="text-red-500 mb-2">{error}</div>}
                 <textarea
@@ -401,7 +464,9 @@ export default function GeminiInterviewAgent() {
                   rows={2}
                   placeholder="Your answer will appear here..."
                   value={transcriptValue}
-                  onChange={e => { setTranscriptValue(e.target.value); setManualMode(true); }}
+                  onChange={(e) => {
+                    setTranscriptValue(e.target.value);
+                  }}
                   disabled={isSpeaking}
                 />
                 <button
